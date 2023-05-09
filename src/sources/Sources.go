@@ -37,4 +37,5 @@ type GenericSource interface {
 	WriteFile(path string) (io.WriteCloser, error)
 	Mkdir(path string) error
 	AbsPath(path string) string
+	Await() error
 }

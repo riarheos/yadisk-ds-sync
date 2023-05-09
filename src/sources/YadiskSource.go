@@ -7,15 +7,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
 type YadiskSource struct {
-	log        *zap.SugaredLogger
-	oauth      string
+	log   *zap.SugaredLogger
+	oauth string
+	root  string
+
 	client     http.Client
 	slowClient http.Client
-	root       string
+	mtx        sync.Mutex
+	err        error
 }
 
 type YadiskResource struct {
@@ -36,13 +40,13 @@ func NewYadiskSource(log *zap.SugaredLogger, token string, root string) *YadiskS
 	return &YadiskSource{
 		log:   log,
 		oauth: fmt.Sprintf("OAuth %v", token),
+		root:  "disk:/" + root,
 		client: http.Client{
 			Timeout: 5 * time.Second,
 		},
 		slowClient: http.Client{
 			Timeout: 300 * time.Second,
 		},
-		root: "disk:/" + root,
 	}
 }
 
@@ -169,13 +173,16 @@ func (s *YadiskSource) WriteFile(path string) (io.WriteCloser, error) {
 		return nil, err
 	}
 
+	s.mtx.Lock()
 	go func() {
 		res, err := s.slowClient.Do(req)
 		if err != nil {
 			_ = writer.Close()
 			_ = res.Body.Close()
+			s.err = err
 		}
-		s.log.Debugf("status %v, err %v", res.Status, err)
+		s.log.Debugf("status %v", res.Status)
+		s.mtx.Unlock()
 	}()
 
 	return writer, nil
@@ -194,6 +201,12 @@ func (s *YadiskSource) Mkdir(path string) error {
 	}
 
 	return nil
+}
+
+func (s *YadiskSource) Await() error {
+	s.mtx.Lock()
+	s.mtx.Unlock()
+	return s.err
 }
 
 func (s *YadiskSource) AbsPath(path string) string {

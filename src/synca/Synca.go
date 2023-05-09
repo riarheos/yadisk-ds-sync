@@ -151,6 +151,15 @@ func (s *Synca) copySingleFile(src sources.GenericSource, dst sources.GenericSou
 	}
 
 	s.log.Debugf("Copied %v bytes", bytes)
+	reader.Close()
+	writer.Close()
+
+	if err := src.Await(); err != nil {
+		return err
+	}
+	if err := dst.Await(); err != nil {
+		return err
+	}
 	return nil
 }
 

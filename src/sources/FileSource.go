@@ -59,6 +59,10 @@ func (s *FileSource) Mkdir(path string) error {
 	return os.Mkdir(s.AbsPath(path), fs.ModeDir|0755)
 }
 
+func (s *FileSource) Await() error {
+	return nil
+}
+
 func (s *FileSource) AbsPath(path string) string {
 	if path == "" {
 		return s.root
