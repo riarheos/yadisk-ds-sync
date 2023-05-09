@@ -35,5 +35,6 @@ type GenericSource interface {
 	ReadDir(path string) ([]Resource, error)
 	ReadFile(path string) (io.ReadCloser, error)
 	WriteFile(path string) (io.WriteCloser, error)
+	Mkdir(path string) error
 	AbsPath(path string) string
 }

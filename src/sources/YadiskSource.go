@@ -47,9 +47,18 @@ func NewYadiskSource(log *zap.SugaredLogger, token string, root string) *YadiskS
 }
 
 func (s *YadiskSource) get(url string, result interface{}) error {
+	return s.http("GET", url, result)
+}
+
+func (s *YadiskSource) put(url string, result interface{}) error {
+	return s.http("PUT", url, result)
+}
+
+func (s *YadiskSource) http(method string, url string, result interface{}) error {
 	fullUrl := fmt.Sprintf("https://cloud-api.yandex.net/v1/disk/%v", url)
-	s.log.Debugf("GET %v", fullUrl)
-	req, err := http.NewRequest("GET", fullUrl, nil)
+	s.log.Debugf("%v %v", method, fullUrl)
+
+	req, err := http.NewRequest(method, fullUrl, nil)
 	if err != nil {
 		return err
 	}
@@ -62,8 +71,10 @@ func (s *YadiskSource) get(url string, result interface{}) error {
 	defer res.Body.Close()
 
 	if res.StatusCode >= 300 || res.StatusCode < 200 {
-		return fmt.Errorf("status %v %v while getting %v", res.StatusCode, res.Status, fullUrl)
+		return fmt.Errorf("status %v while getting %v", res.Status, fullUrl)
 	}
+
+	s.log.Debugf("status %v", res.Status)
 
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -164,9 +175,25 @@ func (s *YadiskSource) WriteFile(path string) (io.WriteCloser, error) {
 			_ = writer.Close()
 			_ = res.Body.Close()
 		}
+		s.log.Debugf("status %v, err %v", res.Status, err)
 	}()
 
 	return writer, nil
+}
+
+func (s *YadiskSource) Mkdir(path string) error {
+	q := url.Values{}
+	q.Add("path", s.AbsPath(path))
+
+	var mkdirRes struct {
+		Href string `json:"href"`
+	}
+	err := s.put(fmt.Sprintf("resources?%v", q.Encode()), &mkdirRes)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *YadiskSource) AbsPath(path string) string {

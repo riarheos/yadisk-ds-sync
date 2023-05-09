@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"io"
+	"io/fs"
 	"os"
 )
 
@@ -52,6 +53,10 @@ func (s *FileSource) ReadFile(path string) (io.ReadCloser, error) {
 
 func (s *FileSource) WriteFile(path string) (io.WriteCloser, error) {
 	return os.Create(s.AbsPath(path))
+}
+
+func (s *FileSource) Mkdir(path string) error {
+	return os.Mkdir(s.AbsPath(path), fs.ModeDir|0755)
 }
 
 func (s *FileSource) AbsPath(path string) string {

@@ -56,6 +56,11 @@ func (s *Synca) Run() error {
 		return err
 	}
 
+	err = s.syncTrees(s.src[1], s.src[0], s.trees[1], s.trees[0])
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -95,7 +100,7 @@ func (s *Synca) syncTrees(src sources.GenericSource, dst sources.GenericSource, 
 	for fileName, file := range srcTree.files {
 		_, ok := dstTree.files[fileName]
 		if !ok {
-			s.log.Debugf("file %v is missing", file.Path)
+			s.log.Infof("file %v is missing", file.Path)
 			err := s.copySingleFile(src, dst, file.Path)
 			if err != nil {
 				return err
@@ -105,13 +110,22 @@ func (s *Synca) syncTrees(src sources.GenericSource, dst sources.GenericSource, 
 
 	for dirName, dir := range srcTree.dirs {
 		destDir, ok := dstTree.dirs[dirName]
-		if ok {
-			err := s.syncTrees(src, dst, dir, destDir)
+		if !ok {
+			s.log.Infof("dir %v is missing", dir.selfPath)
+			err := dst.Mkdir(dir.selfPath)
 			if err != nil {
 				return err
 			}
-		} else {
-			s.log.Debugf("dir %v is missing, need to create with all contents", dir.selfPath)
+			destDir = &treeNode{
+				dirs:     make(map[string]*treeNode),
+				files:    make(map[string]sources.Resource),
+				selfPath: dir.selfPath,
+			}
+		}
+
+		err := s.syncTrees(src, dst, dir, destDir)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -119,7 +133,6 @@ func (s *Synca) syncTrees(src sources.GenericSource, dst sources.GenericSource, 
 }
 
 func (s *Synca) copySingleFile(src sources.GenericSource, dst sources.GenericSource, filePath string) error {
-
 	reader, err := src.ReadFile(filePath)
 	if err != nil {
 		return err
@@ -138,72 +151,6 @@ func (s *Synca) copySingleFile(src sources.GenericSource, dst sources.GenericSou
 	}
 
 	s.log.Debugf("Copied %v bytes", bytes)
-	return nil
-}
-
-func findMissingItems(left map[string]sources.Resource, right map[string]sources.Resource) []string {
-	var result []string
-
-	for l := range left {
-		_, ok := right[l]
-		if !ok {
-			result = append(result, l)
-		}
-	}
-
-	return result
-}
-
-func findResources(src sources.GenericSource, path string) (map[string]sources.Resource, error) {
-	resources, err := src.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	rmap := make(map[string]sources.Resource)
-	for _, l := range resources {
-		rmap[l.Name] = l
-	}
-	return rmap, nil
-}
-
-func (s *Synca) sync(relativePath string) error {
-	lm, err := findResources(s.src[0], relativePath)
-	if err != nil {
-		s.log.Errorf("cannot lookup resources")
-		return err
-	}
-
-	rm, err := findResources(s.src[1], relativePath)
-	if err != nil {
-		s.log.Errorf("cannot lookup resources")
-		return err
-	}
-
-	for _, mi := range findMissingItems(rm, lm) {
-		s.log.Infof("Missing resource %v", s.src[1].AbsPath(rm[mi].Path))
-
-		reader, err := s.src[1].ReadFile(rm[mi].Path)
-		if err != nil {
-			s.log.Errorf("error reading %v: %v", s.src[1].AbsPath(rm[mi].Path), err)
-			continue
-		}
-
-		writer, err := s.src[0].WriteFile(rm[mi].Path)
-		if err != nil {
-			_ = reader.Close()
-			s.log.Errorf("error writing %v: %v", s.src[0].AbsPath(rm[mi].Path), err)
-			continue
-		}
-
-		bytes, err := io.Copy(writer, reader)
-		_ = reader.Close()
-		_ = writer.Close()
-		if err != nil {
-			s.log.Errorf("error copying %v: %v", s.src[1].AbsPath(rm[mi].Path), err)
-		}
-		s.log.Infof("Copied %v bytes", bytes)
-	}
-
 	return nil
 }
 

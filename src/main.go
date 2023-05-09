@@ -2,6 +2,7 @@ package main
 
 import (
 	"go.uber.org/zap"
+	"time"
 	"yadisk-ds-sync/src/synca"
 )
 
@@ -31,4 +32,6 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+
+	time.Sleep(1 * time.Second)
 }
