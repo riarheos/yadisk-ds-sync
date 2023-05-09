@@ -21,7 +21,7 @@ func NewFileSource(log *zap.SugaredLogger, root string) *FileSource {
 }
 
 func (s *FileSource) ReadDir(path string) ([]Resource, error) {
-	ents, err := os.ReadDir(s.AbsPath(path))
+	ents, err := os.ReadDir(s.absPath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -48,22 +48,22 @@ func (s *FileSource) ReadDir(path string) ([]Resource, error) {
 }
 
 func (s *FileSource) ReadFile(path string) (io.ReadCloser, error) {
-	return os.Open(s.AbsPath(path))
+	return os.Open(s.absPath(path))
 }
 
 func (s *FileSource) WriteFile(path string) (io.WriteCloser, error) {
-	return os.Create(s.AbsPath(path))
+	return os.Create(s.absPath(path))
 }
 
 func (s *FileSource) Mkdir(path string) error {
-	return os.Mkdir(s.AbsPath(path), fs.ModeDir|0755)
+	return os.Mkdir(s.absPath(path), fs.ModeDir|0755)
 }
 
 func (s *FileSource) Await() error {
 	return nil
 }
 
-func (s *FileSource) AbsPath(path string) string {
+func (s *FileSource) absPath(path string) string {
 	if path == "" {
 		return s.root
 	}

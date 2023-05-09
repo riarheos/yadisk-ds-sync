@@ -32,10 +32,19 @@ func (ss *SyncSource) URL() string {
 }
 
 type GenericSource interface {
+	// ReadDir scans the directory and returns files and subdirs
 	ReadDir(path string) ([]Resource, error)
+
+	// ReadFile initiates a file read operation. May use other goroutines, see Await()
 	ReadFile(path string) (io.ReadCloser, error)
+
+	// WriteFile initiates a file write operation. May use other goroutines, see Await()
 	WriteFile(path string) (io.WriteCloser, error)
+
+	// Mkdir creates an empty directory. Sync only.
 	Mkdir(path string) error
-	AbsPath(path string) string
+
+	// Await waits for the operation to complete. If ReadFile() or WriteFile() initiated
+	// a goroutine, then this method is to wait for it to complete.
 	Await() error
 }

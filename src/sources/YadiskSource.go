@@ -96,7 +96,7 @@ func (s *YadiskSource) http(method string, url string, result interface{}) error
 func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 	q := url.Values{}
 	q.Add("limit", "10000")
-	q.Add("path", s.AbsPath(path))
+	q.Add("path", s.absPath(path))
 
 	var res yadiskResourceResponse
 	err := s.get(fmt.Sprintf("resources?%v", q.Encode()), &res)
@@ -123,7 +123,7 @@ func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 
 func (s *YadiskSource) ReadFile(path string) (io.ReadCloser, error) {
 	q := url.Values{}
-	q.Add("path", s.AbsPath(path))
+	q.Add("path", s.absPath(path))
 
 	var downloadRes struct {
 		Href string `json:"href"`
@@ -154,7 +154,7 @@ func (s *YadiskSource) ReadFile(path string) (io.ReadCloser, error) {
 
 func (s *YadiskSource) WriteFile(path string) (io.WriteCloser, error) {
 	q := url.Values{}
-	q.Add("path", s.AbsPath(path))
+	q.Add("path", s.absPath(path))
 
 	var uploadRes struct {
 		Href string `json:"href"`
@@ -190,7 +190,7 @@ func (s *YadiskSource) WriteFile(path string) (io.WriteCloser, error) {
 
 func (s *YadiskSource) Mkdir(path string) error {
 	q := url.Values{}
-	q.Add("path", s.AbsPath(path))
+	q.Add("path", s.absPath(path))
 
 	var mkdirRes struct {
 		Href string `json:"href"`
@@ -209,7 +209,7 @@ func (s *YadiskSource) Await() error {
 	return s.err
 }
 
-func (s *YadiskSource) AbsPath(path string) string {
+func (s *YadiskSource) absPath(path string) string {
 	if path == "" {
 		return s.root
 	}
