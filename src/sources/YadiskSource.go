@@ -19,9 +19,11 @@ type YadiskSource struct {
 }
 
 type YadiskResource struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Type string `json:"type"`
+	Name  string    `json:"name"`
+	Path  string    `json:"path"`
+	Type  string    `json:"type"`
+	Size  uint32    `json:"size"`
+	Mtime time.Time `json:"modified"`
 }
 
 type yadiskResourceResponse struct {
@@ -46,6 +48,7 @@ func NewYadiskSource(log *zap.SugaredLogger, token string, root string) *YadiskS
 
 func (s *YadiskSource) get(url string, result interface{}) error {
 	fullUrl := fmt.Sprintf("https://cloud-api.yandex.net/v1/disk/%v", url)
+	s.log.Debugf("GET %v", fullUrl)
 	req, err := http.NewRequest("GET", fullUrl, nil)
 	if err != nil {
 		return err
@@ -95,6 +98,9 @@ func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 		}
 		result[i].Name = e.Name
 		result[i].Path = e.Path
+
+		result[i].Size = e.Size
+		result[i].Mtime = e.Mtime
 	}
 
 	return result, nil

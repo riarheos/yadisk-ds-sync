@@ -20,7 +20,8 @@ func NewFileSource(log *zap.SugaredLogger, root string) *FileSource {
 }
 
 func (s *FileSource) ReadDir(path string) ([]Resource, error) {
-	ents, err := os.ReadDir(s.AbsPath(path))
+	absPath := s.AbsPath(path)
+	ents, err := os.ReadDir(absPath)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +34,14 @@ func (s *FileSource) ReadDir(path string) ([]Resource, error) {
 			result[i].Type = File
 		}
 		result[i].Name = e.Name()
-		result[i].Path = fmt.Sprintf("%v/%v", path, e.Name())
+		result[i].Path = fmt.Sprintf("%v/%v", absPath, result[i].Name)
+
+		info, err := e.Info()
+		if err != nil {
+			return nil, err
+		}
+		result[i].Size = uint32(info.Size())
+		result[i].Mtime = info.ModTime()
 	}
 
 	return result, nil

@@ -4,26 +4,28 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"io"
+	"strings"
 	"yadisk-ds-sync/src/sources"
 )
 
+type treeNode struct {
+	dirs  map[string]*treeNode
+	files map[string]sources.Resource
+}
+
 type Synca struct {
-	log *zap.SugaredLogger
-	src []sources.GenericSource
+	log   *zap.SugaredLogger
+	src   []sources.GenericSource
+	trees []*treeNode
 }
 
 func New(log *zap.SugaredLogger, src []sources.SyncSource, token string) (*Synca, error) {
-	log.Infof("Creating a synchronization from '%v' to '%v'", src[0].URL(), src[1].URL())
-
-	if len(src) != 2 {
-		return nil, fmt.Errorf("can only work with two sources")
-	}
-
 	result := Synca{
 		log: log,
 	}
 
 	for _, s := range src {
+		log.Infof("Registering sync source '%v'", s.URL())
 		switch s.Type {
 		case "file":
 			result.src = append(result.src, sources.NewFileSource(log, s.Root))
@@ -38,7 +40,47 @@ func New(log *zap.SugaredLogger, src []sources.SyncSource, token string) (*Synca
 }
 
 func (s *Synca) Run() error {
-	return s.sync("")
+	s.trees = make([]*treeNode, len(s.src))
+
+	for i, ss := range s.src {
+		t, err := s.getTree(ss, "")
+		if err != nil {
+			return err
+		}
+		s.trees[i] = t
+		t.dump(0)
+	}
+
+	return nil
+}
+
+func (s *Synca) getTree(src sources.GenericSource, path string) (*treeNode, error) {
+	items, err := src.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	node := treeNode{
+		dirs:  make(map[string]*treeNode),
+		files: make(map[string]sources.Resource),
+	}
+
+	for _, i := range items {
+		switch i.Type {
+		case "file":
+			node.files[i.Name] = i
+		case "dir":
+			subnode, err := s.getTree(src, fmt.Sprintf("%v/%v", path, i.Name))
+			if err != nil {
+				return nil, err
+			}
+			node.dirs[i.Name] = subnode
+		default:
+			return nil, fmt.Errorf("unknown node type %v", i.Type)
+		}
+	}
+
+	return &node, nil
 }
 
 func findMissingItems(left map[string]sources.Resource, right map[string]sources.Resource) []string {
@@ -105,4 +147,16 @@ func (s *Synca) sync(relativePath string) error {
 	}
 
 	return nil
+}
+
+func (t *treeNode) dump(pad int) {
+	padding := strings.Repeat(" +  ", pad)
+
+	for _, f := range t.files {
+		fmt.Printf("%v%v (size=%v, mtime=%v, path=%v)\n", padding, f.Name, f.Size, f.Mtime, f.Path)
+	}
+	for n, d := range t.dirs {
+		fmt.Printf("%v[DIR] %v\n", padding, n)
+		d.dump(pad + 1)
+	}
 }

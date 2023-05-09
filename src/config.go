@@ -30,11 +30,5 @@ func readConfig(log *zap.SugaredLogger, file string) (*config, error) {
 		return nil, fmt.Errorf("need at least one sync config to run")
 	}
 
-	for _, s := range c.Sync {
-		if len(s) != 2 {
-			return nil, fmt.Errorf("the sync configuration must include exactly two endpoints")
-		}
-	}
-
 	return &c, nil
 }
