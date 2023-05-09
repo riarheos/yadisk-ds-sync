@@ -9,8 +9,9 @@ import (
 )
 
 type treeNode struct {
-	dirs  map[string]*treeNode
-	files map[string]sources.Resource
+	dirs     map[string]*treeNode
+	files    map[string]sources.Resource
+	selfPath string // see comments in sources.Resource
 }
 
 type Synca struct {
@@ -48,12 +49,17 @@ func (s *Synca) Run() error {
 			return err
 		}
 		s.trees[i] = t
-		t.dump(0)
+	}
+
+	err := s.syncTrees(s.src[0], s.src[1], s.trees[0], s.trees[1])
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
+// getTree fetches recursively a tree from the source. No data is modified.
 func (s *Synca) getTree(src sources.GenericSource, path string) (*treeNode, error) {
 	items, err := src.ReadDir(path)
 	if err != nil {
@@ -61,8 +67,9 @@ func (s *Synca) getTree(src sources.GenericSource, path string) (*treeNode, erro
 	}
 
 	node := treeNode{
-		dirs:  make(map[string]*treeNode),
-		files: make(map[string]sources.Resource),
+		dirs:     make(map[string]*treeNode),
+		files:    make(map[string]sources.Resource),
+		selfPath: path,
 	}
 
 	for _, i := range items {
@@ -81,6 +88,57 @@ func (s *Synca) getTree(src sources.GenericSource, path string) (*treeNode, erro
 	}
 
 	return &node, nil
+}
+
+// syncTrees tries to recursively sync two trees. It will modify file contents if required.
+func (s *Synca) syncTrees(src sources.GenericSource, dst sources.GenericSource, srcTree *treeNode, dstTree *treeNode) error {
+	for fileName, file := range srcTree.files {
+		_, ok := dstTree.files[fileName]
+		if !ok {
+			s.log.Debugf("file %v is missing", file.Path)
+			err := s.copySingleFile(src, dst, file.Path)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	for dirName, dir := range srcTree.dirs {
+		destDir, ok := dstTree.dirs[dirName]
+		if ok {
+			err := s.syncTrees(src, dst, dir, destDir)
+			if err != nil {
+				return err
+			}
+		} else {
+			s.log.Debugf("dir %v is missing, need to create with all contents", dir.selfPath)
+		}
+	}
+
+	return nil
+}
+
+func (s *Synca) copySingleFile(src sources.GenericSource, dst sources.GenericSource, filePath string) error {
+
+	reader, err := src.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	writer, err := dst.WriteFile(filePath)
+	if err != nil {
+		return err
+	}
+	defer writer.Close()
+
+	bytes, err := io.Copy(writer, reader)
+	if err != nil {
+		return err
+	}
+
+	s.log.Debugf("Copied %v bytes", bytes)
+	return nil
 }
 
 func findMissingItems(left map[string]sources.Resource, right map[string]sources.Resource) []string {
@@ -156,7 +214,7 @@ func (t *treeNode) dump(pad int) {
 		fmt.Printf("%v%v (size=%v, mtime=%v, path=%v)\n", padding, f.Name, f.Size, f.Mtime, f.Path)
 	}
 	for n, d := range t.dirs {
-		fmt.Printf("%v[DIR] %v\n", padding, n)
+		fmt.Printf("%v[DIR] %v (path=%v)\n", padding, n, d.selfPath)
 		d.dump(pad + 1)
 	}
 }

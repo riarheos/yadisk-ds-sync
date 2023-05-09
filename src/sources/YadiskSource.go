@@ -97,7 +97,7 @@ func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 			result[i].Type = File
 		}
 		result[i].Name = e.Name
-		result[i].Path = e.Path
+		result[i].Path = fmt.Sprintf("%v/%v", path, e.Name)
 
 		result[i].Size = e.Size
 		result[i].Mtime = e.Mtime
@@ -173,8 +173,5 @@ func (s *YadiskSource) AbsPath(path string) string {
 	if path == "" {
 		return s.root
 	}
-	if len(path) > 0 && path[0] == '/' {
-		return fmt.Sprintf("%v%v", s.root, path)
-	}
-	return fmt.Sprintf("%v/%v", s.root, path)
+	return fmt.Sprintf("%v%v", s.root, path)
 }

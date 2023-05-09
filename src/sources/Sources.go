@@ -14,8 +14,8 @@ const (
 type Resource struct {
 	Type string
 
-	Name string // human readable
-	Path string // absolute path within a container
+	Name string // human readable, just the file name
+	Path string // path relative to the source root, will have a slash in the beginning due to the creation rules
 
 	// only set for Type == file
 	Size  uint32
