@@ -5,6 +5,7 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"strings"
+	"sync"
 	"yadisk-ds-sync/src/sources"
 )
 
@@ -29,7 +30,11 @@ func New(log *zap.SugaredLogger, src []sources.SyncSource, token string) (*Synca
 		log.Infof("Registering sync source '%v'", s.URL())
 		switch s.Type {
 		case "file":
-			result.src = append(result.src, sources.NewFileSource(log, s.Root))
+			fs, err := sources.NewFileSource(log, s.Root)
+			if err != nil {
+				return nil, err
+			}
+			result.src = append(result.src, fs)
 		case "yadisk":
 			result.src = append(result.src, sources.NewYadiskSource(log, token, s.Root))
 		default:
@@ -40,9 +45,22 @@ func New(log *zap.SugaredLogger, src []sources.SyncSource, token string) (*Synca
 	return &result, nil
 }
 
+func (s *Synca) Destroy() error {
+	var err error = nil
+	for _, s := range s.src {
+		e := s.Destroy()
+		if e != nil && err == nil {
+			err = e
+		}
+	}
+	return err
+}
+
 func (s *Synca) Run() error {
 	s.trees = make([]*treeNode, len(s.src))
 
+	// prepare trees
+	s.log.Info("Preparing trees")
 	for i, ss := range s.src {
 		t, err := s.getTree(ss, "")
 		if err != nil {
@@ -51,22 +69,51 @@ func (s *Synca) Run() error {
 		s.trees[i] = t
 	}
 
+	// initial sync
+	s.log.Info("Doing initial sync")
 	err := s.syncTrees(s.src[0], s.src[1], s.trees[0], s.trees[1])
 	if err != nil {
 		return err
 	}
-
 	err = s.syncTrees(s.src[1], s.src[0], s.trees[1], s.trees[0])
 	if err != nil {
 		return err
 	}
+	s.log.Info("Initial sync done")
 
+	var wg sync.WaitGroup
+	wg.Add(len(s.src))
+
+	for _, src := range s.src {
+		go func(src sources.GenericSource) {
+			evts := src.Events()
+			for {
+				e := <-evts
+				if e.Action == sources.Create && e.Type == sources.Directory {
+					err := src.WatchDir(e.Name)
+					if err != nil {
+						s.log.Errorf("error installing watcher to %v: %v", e.Name, err)
+					}
+				}
+				s.log.Debugf("Event: (%v) %v - %v", e.Type, e.Name, e.Action)
+			}
+			// TODO: wg.Done()
+		}(src)
+	}
+
+	wg.Wait()
 	return nil
 }
 
 // getTree fetches recursively a tree from the source. No data is modified.
+// However, watchers are installed on directories along the descent.
 func (s *Synca) getTree(src sources.GenericSource, path string) (*treeNode, error) {
 	items, err := src.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	err = src.WatchDir(path)
 	if err != nil {
 		return nil, err
 	}
@@ -79,9 +126,9 @@ func (s *Synca) getTree(src sources.GenericSource, path string) (*treeNode, erro
 
 	for _, i := range items {
 		switch i.Type {
-		case "file":
+		case sources.File:
 			node.files[i.Name] = i
-		case "dir":
+		case sources.Directory:
 			subnode, err := s.getTree(src, fmt.Sprintf("%v/%v", path, i.Name))
 			if err != nil {
 				return nil, err
@@ -154,10 +201,10 @@ func (s *Synca) copySingleFile(src sources.GenericSource, dst sources.GenericSou
 	reader.Close()
 	writer.Close()
 
-	if err := src.Await(); err != nil {
+	if err := src.AwaitIO(); err != nil {
 		return err
 	}
-	if err := dst.Await(); err != nil {
+	if err := dst.AwaitIO(); err != nil {
 		return err
 	}
 	return nil

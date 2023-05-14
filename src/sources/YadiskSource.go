@@ -203,10 +203,22 @@ func (s *YadiskSource) Mkdir(path string) error {
 	return nil
 }
 
-func (s *YadiskSource) Await() error {
+func (s *YadiskSource) AwaitIO() error {
 	s.mtx.Lock()
 	s.mtx.Unlock()
 	return s.err
+}
+
+func (s *YadiskSource) Destroy() error {
+	return nil
+}
+
+func (s *YadiskSource) WatchDir(_ string) error {
+	return nil
+}
+
+func (s *YadiskSource) Events() chan FileEvent {
+	return make(chan FileEvent)
 }
 
 func (s *YadiskSource) absPath(path string) string {

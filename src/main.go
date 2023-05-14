@@ -30,5 +30,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		err = s.Destroy()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
