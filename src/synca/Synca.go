@@ -86,16 +86,35 @@ func (s *Synca) Run() error {
 
 	for _, src := range s.src {
 		go func(src sources.GenericSource) {
+			dst := s.getOtherSource(src)
 			evts := src.Events()
 			for {
 				e := <-evts
+				// this goes first to be quick enough to see the file creation for 'mkdir && touch' ops
 				if e.Action == sources.Create && e.Type == sources.Directory {
 					err := src.WatchDir(e.Name)
 					if err != nil {
 						s.log.Errorf("error installing watcher to %v: %v", e.Name, err)
 					}
 				}
-				s.log.Debugf("Event: (%v) %v - %v", e.Type, e.Name, e.Action)
+
+				if e.Action == sources.Create {
+					if e.Type == sources.File {
+						s.log.Infof("Syncing new file: %v", e.Name)
+						err := s.copySingleFile(src, dst, e.Name)
+						if err != nil {
+							s.log.Errorf("Error copying %v: %v", e.Name, err)
+						}
+					} else {
+						s.log.Infof("Syncing new dir: %v", e.Name)
+						err := dst.Mkdir(e.Path)
+						if err != nil {
+							s.log.Errorf("Error making dir %v: %v", e.Name, err)
+						}
+					}
+				} else {
+					s.log.Warnf("Got a delete for %v, ignoring it", e.Name)
+				}
 			}
 			// TODO: wg.Done()
 		}(src)
@@ -208,6 +227,14 @@ func (s *Synca) copySingleFile(src sources.GenericSource, dst sources.GenericSou
 		return err
 	}
 	return nil
+}
+
+func (s *Synca) getOtherSource(src sources.GenericSource) sources.GenericSource {
+	if s.src[0] == src {
+		return s.src[1]
+	} else {
+		return s.src[0]
+	}
 }
 
 func (t *treeNode) dump(pad int) {
