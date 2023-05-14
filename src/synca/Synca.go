@@ -19,11 +19,13 @@ type Synca struct {
 	log   *zap.SugaredLogger
 	src   []sources.GenericSource
 	trees []*treeNode
+	Done  chan bool
 }
 
 func New(log *zap.SugaredLogger, src []sources.SyncSource, token string) (*Synca, error) {
 	result := Synca{
-		log: log,
+		log:  log,
+		Done: make(chan bool, 1),
 	}
 
 	for _, s := range src {
@@ -85,43 +87,56 @@ func (s *Synca) Run() error {
 	wg.Add(len(s.src))
 
 	for _, src := range s.src {
-		go func(src sources.GenericSource) {
-			dst := s.getOtherSource(src)
-			evts := src.Events()
-			for {
-				e := <-evts
-				// this goes first to be quick enough to see the file creation for 'mkdir && touch' ops
-				if e.Action == sources.Create && e.Type == sources.Directory {
-					err := src.WatchDir(e.Name)
-					if err != nil {
-						s.log.Errorf("error installing watcher to %v: %v", e.Name, err)
-					}
-				}
-
-				if e.Action == sources.Create {
-					if e.Type == sources.File {
-						s.log.Infof("Syncing new file: %v", e.Name)
-						err := s.copySingleFile(src, dst, e.Name)
-						if err != nil {
-							s.log.Errorf("Error copying %v: %v", e.Name, err)
-						}
-					} else {
-						s.log.Infof("Syncing new dir: %v", e.Name)
-						err := dst.Mkdir(e.Path)
-						if err != nil {
-							s.log.Errorf("Error making dir %v: %v", e.Name, err)
-						}
-					}
-				} else {
-					s.log.Warnf("Got a delete for %v, ignoring it", e.Name)
-				}
-			}
-			// TODO: wg.Done()
-		}(src)
+		go s.diffSync(src, &wg)
 	}
 
 	wg.Wait()
+	s.log.Info("Sync terminating")
 	return nil
+}
+
+func (s *Synca) diffSync(src sources.GenericSource, wg *sync.WaitGroup) {
+	dst := s.getOtherSource(src)
+	evts := src.Events()
+outer:
+	for {
+		var e sources.FileEvent
+
+		select {
+		case <-s.Done:
+			s.Done <- true // set done flag for other sources
+			break outer
+		case e = <-evts:
+		}
+
+		// this goes first to be quick enough to see the file creation for 'mkdir && touch' ops
+		if e.Action == sources.Create && e.Type == sources.Directory {
+			err := src.WatchDir(e.Name)
+			if err != nil {
+				s.log.Errorf("error installing watcher to %v: %v", e.Name, err)
+			}
+		}
+
+		if e.Action == sources.Create {
+			if e.Type == sources.File {
+				s.log.Infof("Syncing new file: %v", e.Name)
+				err := s.copySingleFile(src, dst, e.Name)
+				if err != nil {
+					s.log.Errorf("Error copying %v: %v", e.Name, err)
+				}
+			} else {
+				s.log.Infof("Syncing new dir: %v", e.Name)
+				err := dst.Mkdir(e.Path)
+				if err != nil {
+					s.log.Errorf("Error making dir %v: %v", e.Name, err)
+				}
+			}
+		} else {
+			s.log.Warnf("Got a delete for %v, ignoring it", e.Name)
+		}
+	}
+
+	wg.Done()
 }
 
 // getTree fetches recursively a tree from the source. No data is modified.
