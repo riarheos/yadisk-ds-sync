@@ -119,6 +119,7 @@ func (s *FileSource) Events() chan FileEvent {
 					fe.Size = uint32(stat.Size())
 				}
 
+				s.log.Debugf("Found new diffsync file %v (%v)", fe.Path, fe.Mtime)
 				result <- fe
 			case e := <-s.watcher.Errors:
 				s.log.Errorf("error watching: %v", e)

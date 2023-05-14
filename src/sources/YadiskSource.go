@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,6 +21,8 @@ type YadiskSource struct {
 	slowClient http.Client
 	mtx        sync.Mutex
 	err        error
+	lastMtime  time.Time
+	done       chan bool
 }
 
 type YadiskResource struct {
@@ -42,11 +45,12 @@ func NewYadiskSource(log *zap.SugaredLogger, token string, root string) *YadiskS
 		oauth: fmt.Sprintf("OAuth %v", token),
 		root:  "disk:/" + root,
 		client: http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		slowClient: http.Client{
 			Timeout: 300 * time.Second,
 		},
+		done: make(chan bool, 1),
 	}
 }
 
@@ -116,6 +120,10 @@ func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 
 		result[i].Size = e.Size
 		result[i].Mtime = e.Mtime
+
+		if e.Mtime.After(s.lastMtime) {
+			s.lastMtime = e.Mtime
+		}
 	}
 
 	return result, nil
@@ -210,15 +218,75 @@ func (s *YadiskSource) AwaitIO() error {
 }
 
 func (s *YadiskSource) Destroy() error {
+	s.done <- true
 	return nil
 }
 
 func (s *YadiskSource) WatchDir(_ string) error {
+	// here we can simply ignore all the watch requests because
+	// we filter out all events globally by the prefix
 	return nil
 }
 
 func (s *YadiskSource) Events() chan FileEvent {
-	return make(chan FileEvent)
+	result := make(chan FileEvent)
+
+	go func() {
+
+	outer:
+		for {
+			t := time.NewTimer(15 * time.Second)
+
+			select {
+			case <-s.done:
+				break outer
+			case <-t.C:
+				// fall through
+			}
+
+			q := url.Values{}
+			q.Add("limit", "100")
+
+			var res struct {
+				Items []YadiskResource `json:"items"`
+			}
+			err := s.get(fmt.Sprintf("resources/last-uploaded?%v", q.Encode()), &res)
+			if err != nil {
+				s.log.Errorf("Could not fetch update-resources: %v", err)
+				continue
+			}
+
+			var packLastMtime time.Time
+			for _, item := range res.Items {
+				if strings.HasPrefix(item.Path, s.root) && item.Mtime.After(s.lastMtime) {
+					s.log.Debugf("Found new diffsync file %v (%v)", item.Path, item.Mtime)
+					r := FileEvent{}
+					if item.Type == "dir" {
+						r.Type = Directory
+					} else {
+						r.Type = File
+					}
+					r.Name = item.Name
+					r.Path = s.relPath(item.Path)
+					r.Size = item.Size
+					r.Mtime = item.Mtime
+					r.Action = Create
+					result <- r
+
+					if item.Mtime.After(packLastMtime) {
+						packLastMtime = item.Mtime
+					}
+				}
+			}
+
+			if packLastMtime.After(s.lastMtime) {
+				s.lastMtime = packLastMtime
+			}
+		}
+
+	}()
+
+	return result
 }
 
 func (s *YadiskSource) absPath(path string) string {
@@ -226,4 +294,8 @@ func (s *YadiskSource) absPath(path string) string {
 		return s.root
 	}
 	return fmt.Sprintf("%v%v", s.root, path)
+}
+
+func (s *YadiskSource) relPath(path string) string {
+	return strings.Replace(path, s.root, "", 1)
 }
