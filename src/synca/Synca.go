@@ -81,8 +81,8 @@ func (s *Synca) Run() error {
 	if err != nil {
 		return err
 	}
-	s.log.Info("Initial sync done")
 
+	s.log.Info("Initial sync done, going for diff syncs")
 	var wg sync.WaitGroup
 	wg.Add(len(s.src))
 

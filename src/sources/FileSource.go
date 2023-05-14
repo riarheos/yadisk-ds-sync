@@ -7,12 +7,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"strings"
+	"path"
 )
 
 type FileSource struct {
-	log     *zap.SugaredLogger
-	root    string
+	BaseSource
 	watcher *fsnotify.Watcher
 	done    chan bool
 }
@@ -24,11 +23,29 @@ func NewFileSource(log *zap.SugaredLogger, root string) (*FileSource, error) {
 	}
 
 	return &FileSource{
-		log:     log,
-		root:    root,
+		BaseSource: BaseSource{
+			log:  log,
+			root: root,
+		},
 		watcher: watcher,
 		done:    make(chan bool, 1),
 	}, nil
+}
+
+func (s *FileSource) convertResourceType(e os.FileInfo, path string) Resource {
+	var result Resource
+
+	if e.IsDir() {
+		result.Type = Directory
+	} else {
+		result.Type = File
+	}
+	result.Name = e.Name()
+	result.Path = fmt.Sprintf("%v/%v", path, result.Name)
+	result.Size = uint32(e.Size())
+	result.Mtime = e.ModTime()
+
+	return result
 }
 
 func (s *FileSource) ReadDir(path string) ([]Resource, error) {
@@ -39,20 +56,11 @@ func (s *FileSource) ReadDir(path string) ([]Resource, error) {
 
 	result := make([]Resource, len(ents))
 	for i, e := range ents {
-		if e.IsDir() {
-			result[i].Type = Directory
-		} else {
-			result[i].Type = File
-		}
-		result[i].Name = e.Name()
-		result[i].Path = fmt.Sprintf("%v/%v", path, result[i].Name)
-
 		info, err := e.Info()
 		if err != nil {
 			return nil, err
 		}
-		result[i].Size = uint32(info.Size())
-		result[i].Mtime = info.ModTime()
+		result[i] = s.convertResourceType(info, path)
 	}
 
 	return result, nil
@@ -91,17 +99,16 @@ func (s *FileSource) Events() chan FileEvent {
 		for {
 			select {
 			case e := <-s.watcher.Events:
-				fe := FileEvent{}
-				fe.Name = s.relPath(e.Name)
-				fe.Path = e.Name
-
 				if e.Op.Has(fsnotify.Remove) {
-					fe.Action = Delete
-					result <- fe
+					result <- FileEvent{
+						Action: Delete,
+						Resource: Resource{
+							Name: path.Base(e.Name),
+							Path: s.relPath(e.Name),
+						},
+					}
 					continue
 				}
-
-				fe.Action = Create
 
 				stat, err := os.Stat(e.Name)
 				if err != nil {
@@ -109,14 +116,9 @@ func (s *FileSource) Events() chan FileEvent {
 					continue
 				}
 
-				if stat.IsDir() {
-					fe.Type = Directory
-				} else {
-					fe.Type = File
-				}
-
-				if fe.Type == File {
-					fe.Size = uint32(stat.Size())
+				fe := FileEvent{
+					Action:   Create,
+					Resource: s.convertResourceType(stat, path.Dir(e.Name)),
 				}
 
 				s.log.Debugf("Found new diffsync file %v (%v)", fe.Path, fe.Mtime)
@@ -131,15 +133,4 @@ func (s *FileSource) Events() chan FileEvent {
 	}()
 
 	return result
-}
-
-func (s *FileSource) absPath(path string) string {
-	if path == "" {
-		return s.root
-	}
-	return fmt.Sprintf("%v%v", s.root, path)
-}
-
-func (s *FileSource) relPath(path string) string {
-	return strings.Replace(path, s.root, "", 1)
 }

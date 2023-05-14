@@ -2,7 +2,9 @@ package sources
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -78,4 +80,20 @@ type GenericSource interface {
 
 	// Events returns a channel with relative file names that have changed
 	Events() chan FileEvent
+}
+
+type BaseSource struct {
+	log  *zap.SugaredLogger
+	root string
+}
+
+func (s *BaseSource) absPath(path string) string {
+	if path == "" {
+		return s.root
+	}
+	return fmt.Sprintf("%v%v", s.root, path)
+}
+
+func (s *BaseSource) relPath(path string) string {
+	return strings.Replace(path, s.root, "", 1)
 }

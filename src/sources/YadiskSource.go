@@ -13,10 +13,8 @@ import (
 )
 
 type YadiskSource struct {
-	log   *zap.SugaredLogger
-	oauth string
-	root  string
-
+	BaseSource
+	oauth      string
 	client     http.Client
 	slowClient http.Client
 	mtx        sync.Mutex
@@ -33,17 +31,21 @@ type YadiskResource struct {
 	Mtime time.Time `json:"modified"`
 }
 
+type yadiskItemsResponse struct {
+	Items []YadiskResource `json:"items"`
+}
+
 type yadiskResourceResponse struct {
-	Embedded struct {
-		Items []YadiskResource `json:"items"`
-	} `json:"_embedded"`
+	Embedded yadiskItemsResponse `json:"_embedded"`
 }
 
 func NewYadiskSource(log *zap.SugaredLogger, token string, root string) *YadiskSource {
 	return &YadiskSource{
-		log:   log,
+		BaseSource: BaseSource{
+			log:  log,
+			root: "disk:/" + root,
+		},
 		oauth: fmt.Sprintf("OAuth %v", token),
-		root:  "disk:/" + root,
 		client: http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -97,6 +99,22 @@ func (s *YadiskSource) http(method string, url string, result interface{}) error
 	return nil
 }
 
+func (s *YadiskSource) convertResourceType(e YadiskResource) Resource {
+	var result Resource
+
+	if e.Type == "dir" {
+		result.Type = Directory
+	} else {
+		result.Type = File
+	}
+	result.Name = e.Name
+	result.Path = s.relPath(e.Path)
+	result.Size = e.Size
+	result.Mtime = e.Mtime
+
+	return result
+}
+
 func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 	q := url.Values{}
 	q.Add("limit", "10000")
@@ -110,17 +128,7 @@ func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 
 	result := make([]Resource, len(res.Embedded.Items))
 	for i, e := range res.Embedded.Items {
-		if e.Type == "dir" {
-			result[i].Type = Directory
-		} else {
-			result[i].Type = File
-		}
-		result[i].Name = e.Name
-		result[i].Path = fmt.Sprintf("%v/%v", path, e.Name)
-
-		result[i].Size = e.Size
-		result[i].Mtime = e.Mtime
-
+		result[i] = s.convertResourceType(e)
 		if e.Mtime.After(s.lastMtime) {
 			s.lastMtime = e.Mtime
 		}
@@ -260,17 +268,10 @@ func (s *YadiskSource) Events() chan FileEvent {
 			for _, item := range res.Items {
 				if strings.HasPrefix(item.Path, s.root) && item.Mtime.After(s.lastMtime) {
 					s.log.Debugf("Found new diffsync file %v (%v)", item.Path, item.Mtime)
-					r := FileEvent{}
-					if item.Type == "dir" {
-						r.Type = Directory
-					} else {
-						r.Type = File
+					r := FileEvent{
+						Action:   Create,
+						Resource: s.convertResourceType(item),
 					}
-					r.Name = item.Name
-					r.Path = s.relPath(item.Path)
-					r.Size = item.Size
-					r.Mtime = item.Mtime
-					r.Action = Create
 					result <- r
 
 					if item.Mtime.After(packLastMtime) {
@@ -287,15 +288,4 @@ func (s *YadiskSource) Events() chan FileEvent {
 	}()
 
 	return result
-}
-
-func (s *YadiskSource) absPath(path string) string {
-	if path == "" {
-		return s.root
-	}
-	return fmt.Sprintf("%v%v", s.root, path)
-}
-
-func (s *YadiskSource) relPath(path string) string {
-	return strings.Replace(path, s.root, "", 1)
 }
