@@ -2,11 +2,6 @@ package main
 
 import (
 	"go.uber.org/zap"
-	"os"
-	"os/signal"
-	"sync"
-	"yadisk-ds-sync/src/sources"
-	"yadisk-ds-sync/src/synca"
 )
 
 func createLogger() *zap.SugaredLogger {
@@ -19,48 +14,22 @@ func createLogger() *zap.SugaredLogger {
 
 func main() {
 	log := createLogger()
-
 	cfg, err := readConfig(log, "config.yaml")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("read config failed", zap.Error(err))
 	}
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
-
-	var wg sync.WaitGroup
-	wg.Add(len(cfg.Sync))
-
-	syncas := make(chan *synca.Synca, len(cfg.Sync))
-
-	for _, syncSources := range cfg.Sync {
-		go func(syncSources []sources.SyncSource) {
-			s, err := synca.New(log, syncSources, cfg.Token)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			syncas <- s
-
-			err = s.Run()
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			err = s.Destroy()
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			wg.Done()
-		}(syncSources)
+	l := newLocal(log, &cfg.Local)
+	localTree, err := l.Tree()
+	if err != nil {
+		log.Fatal("tree failed", zap.Error(err))
 	}
+	localTree.dump(log, "")
 
-	<-sig
-	for i := 0; i < len(cfg.Sync); i++ {
-		s := <-syncas
-		s.Done <- true
+	yd := newYadisk(log, &cfg.Remote)
+	remoteTree, err := yd.Tree()
+	if err != nil {
+		log.Fatal("tree failed", zap.Error(err))
 	}
-
-	wg.Wait()
+	remoteTree.dump(log, "")
 }
