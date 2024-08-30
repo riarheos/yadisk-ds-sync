@@ -7,19 +7,20 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
 
 type YadiskSource struct {
-	log   *zap.SugaredLogger
-	oauth string
-	root  string
-
+	BaseSource
+	oauth      string
 	client     http.Client
 	slowClient http.Client
 	mtx        sync.Mutex
 	err        error
+	lastMtime  time.Time
+	done       chan bool
 }
 
 type YadiskResource struct {
@@ -30,23 +31,28 @@ type YadiskResource struct {
 	Mtime time.Time `json:"modified"`
 }
 
+type yadiskItemsResponse struct {
+	Items []YadiskResource `json:"items"`
+}
+
 type yadiskResourceResponse struct {
-	Embedded struct {
-		Items []YadiskResource `json:"items"`
-	} `json:"_embedded"`
+	Embedded yadiskItemsResponse `json:"_embedded"`
 }
 
 func NewYadiskSource(log *zap.SugaredLogger, token string, root string) *YadiskSource {
 	return &YadiskSource{
-		log:   log,
+		BaseSource: BaseSource{
+			log:  log,
+			root: "disk:/" + root,
+		},
 		oauth: fmt.Sprintf("OAuth %v", token),
-		root:  "disk:/" + root,
 		client: http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		slowClient: http.Client{
 			Timeout: 300 * time.Second,
 		},
+		done: make(chan bool, 1),
 	}
 }
 
@@ -93,6 +99,22 @@ func (s *YadiskSource) http(method string, url string, result interface{}) error
 	return nil
 }
 
+func (s *YadiskSource) convertResourceType(e YadiskResource) Resource {
+	var result Resource
+
+	if e.Type == "dir" {
+		result.Type = Directory
+	} else {
+		result.Type = File
+	}
+	result.Name = e.Name
+	result.Path = s.relPath(e.Path)
+	result.Size = e.Size
+	result.Mtime = e.Mtime
+
+	return result
+}
+
 func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 	q := url.Values{}
 	q.Add("limit", "10000")
@@ -106,16 +128,10 @@ func (s *YadiskSource) ReadDir(path string) ([]Resource, error) {
 
 	result := make([]Resource, len(res.Embedded.Items))
 	for i, e := range res.Embedded.Items {
-		if e.Type == "dir" {
-			result[i].Type = Directory
-		} else {
-			result[i].Type = File
+		result[i] = s.convertResourceType(e)
+		if e.Mtime.After(s.lastMtime) {
+			s.lastMtime = e.Mtime
 		}
-		result[i].Name = e.Name
-		result[i].Path = fmt.Sprintf("%v/%v", path, e.Name)
-
-		result[i].Size = e.Size
-		result[i].Mtime = e.Mtime
 	}
 
 	return result, nil
@@ -203,15 +219,73 @@ func (s *YadiskSource) Mkdir(path string) error {
 	return nil
 }
 
-func (s *YadiskSource) Await() error {
+func (s *YadiskSource) AwaitIO() error {
 	s.mtx.Lock()
 	s.mtx.Unlock()
 	return s.err
 }
 
-func (s *YadiskSource) absPath(path string) string {
-	if path == "" {
-		return s.root
-	}
-	return fmt.Sprintf("%v%v", s.root, path)
+func (s *YadiskSource) Destroy() error {
+	s.done <- true
+	return nil
+}
+
+func (s *YadiskSource) WatchDir(_ string) error {
+	// here we can simply ignore all the watch requests because
+	// we filter out all events globally by the prefix
+	return nil
+}
+
+func (s *YadiskSource) Events() chan FileEvent {
+	result := make(chan FileEvent)
+
+	go func() {
+
+	outer:
+		for {
+			t := time.NewTimer(15 * time.Second)
+
+			select {
+			case <-s.done:
+				break outer
+			case <-t.C:
+				// fall through
+			}
+
+			q := url.Values{}
+			q.Add("limit", "100")
+
+			var res struct {
+				Items []YadiskResource `json:"items"`
+			}
+			err := s.get(fmt.Sprintf("resources/last-uploaded?%v", q.Encode()), &res)
+			if err != nil {
+				s.log.Errorf("Could not fetch update-resources: %v", err)
+				continue
+			}
+
+			var packLastMtime time.Time
+			for _, item := range res.Items {
+				if strings.HasPrefix(item.Path, s.root) && item.Mtime.After(s.lastMtime) {
+					s.log.Debugf("Found new diffsync file %v (%v)", item.Path, item.Mtime)
+					r := FileEvent{
+						Action:   Create,
+						Resource: s.convertResourceType(item),
+					}
+					result <- r
+
+					if item.Mtime.After(packLastMtime) {
+						packLastMtime = item.Mtime
+					}
+				}
+			}
+
+			if packLastMtime.After(s.lastMtime) {
+				s.lastMtime = packLastMtime
+			}
+		}
+
+	}()
+
+	return result
 }
