@@ -62,21 +62,23 @@ func (l *Local) tree(path string) (*TreeNode, error) {
 	}
 
 	t := &TreeNode{
-		Name:     path,
+		Name:     filepath.Base(path),
 		Type:     DirNode,
 		Children: make([]*TreeNode, 0),
 	}
 
 outer:
 	for _, ent := range ents {
+		en := filepath.Base(ent.Name())
+
 		for _, ign := range l.cfg.Ignore {
-			if ent.Name() == ign {
+			if en == ign {
 				continue outer
 			}
 		}
 
 		if ent.IsDir() {
-			sub, err := l.tree(filepath.Join(path, ent.Name()))
+			sub, err := l.tree(filepath.Join(path, en))
 			if err != nil {
 				return nil, err
 			}
@@ -87,7 +89,7 @@ outer:
 				return nil, err
 			}
 			child := &TreeNode{
-				Name: ent.Name(),
+				Name: en,
 				Type: FileNode,
 				Size: fi.Size(),
 			}

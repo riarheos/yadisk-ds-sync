@@ -26,15 +26,15 @@ func applyDiff(lf, rf filesource.FileSource, lt, rt *filesource.TreeNode) error 
 
 	for _, de := range diff {
 		if de.Type == filesource.DirNode {
-			if err = lf.MkDir(de.Name); err != nil {
+			if err = rf.MkDir(de.Name); err != nil {
 				return err
 			}
 		} else {
-			f, err := rf.ReadFile(de.Name)
+			f, err := lf.ReadFile(de.Name)
 			if err != nil {
 				return err
 			}
-			err = lf.WriteFile(de.Name, f)
+			err = rf.WriteFile(de.Name, f)
 			f.Close()
 			if err != nil {
 				return err
@@ -60,21 +60,6 @@ func dumpDiff(log *zap.SugaredLogger, lt, rt *filesource.TreeNode) error {
 	return nil
 }
 
-//	func main() {
-//		log := createLogger(true)
-//		cfg, err := readConfig(log, "config.yaml")
-//		if err != nil {
-//			log.Fatalf("failed to read config: %v", err)
-//		}
-//
-//		remote := filesource.NewYadisk(log, &cfg.Remote)
-//		rt, err := remote.Tree()
-//		if err != nil {
-//			panic(err)
-//		}
-//
-//		rt.Dump(log, "")
-//	}
 func main() {
 	debug := flag.BoolP("debug", "d", false, "enable debug logging mode")
 	trees := flag.BoolP("trees", "t", false, "dump corresponding trees")
@@ -106,7 +91,7 @@ func main() {
 		log.Fatalf("remote tree failed: %v", err)
 	}
 	if *trees {
-		if err = lt.DumpToFile(log, "remote_tree.yaml"); err != nil {
+		if err = rt.DumpToFile(log, "remote_tree.yaml"); err != nil {
 			log.Fatalf("failed to dump tree: %v", err)
 		}
 	}

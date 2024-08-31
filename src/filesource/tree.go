@@ -39,6 +39,21 @@ func (t *TreeNode) Dump(log *zap.SugaredLogger, pad string) {
 	}
 }
 
+func NewTreeNode(filename string) (*TreeNode, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	t := &TreeNode{}
+	err = yaml.Unmarshal(data, t)
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
 func (t *TreeNode) DumpToFile(log *zap.SugaredLogger, filename string) error {
 	log.Infof("Dumping tree to %s", filename)
 	b, err := yaml.Marshal(&t)
@@ -49,9 +64,8 @@ func (t *TreeNode) DumpToFile(log *zap.SugaredLogger, filename string) error {
 }
 
 type DiffElement struct {
-	Name     string
-	Type     nodeType
-	IsUpdate bool
+	Name string
+	Type nodeType
 }
 
 func (d *DiffElement) String() string {
@@ -66,42 +80,43 @@ func (t *TreeNode) Compare(other *TreeNode) ([]DiffElement, error) {
 	return diff, t.compare(other, &diff, "")
 }
 
+// compare adds to the diff every node present in **t** that is not present in **other**
 func (t *TreeNode) compare(other *TreeNode, diff *[]DiffElement, path string) error {
+	ownPath := filepath.Join(path, t.Name)
+
+	if other == nil {
+		*diff = append(*diff, DiffElement{ownPath, t.Type})
+		for _, child := range t.Children {
+			if err := child.compare(nil, diff, ownPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	if t.Type != other.Type {
 		return errors.New("different type")
 	}
 
 	if t.Type == FileNode {
-		if other.Size > t.Size {
-			*diff = append(*diff, DiffElement{filepath.Join(path, t.Name), FileNode, true})
+		// for now consider the bigger file more recent
+		// TODO: use some mtime logic maybe?
+		if t.Size > other.Size {
+			*diff = append(*diff, DiffElement{ownPath, FileNode})
 		}
 		return nil
 	}
 
 	// at this point both are dirNodes
-	mine := treeNodeMap(&t.Children)
 	others := treeNodeMap(&other.Children)
-	for o, oval := range others {
-		m, ok := mine[o]
-		if ok {
-			if err := m.compare(oval, diff, filepath.Join(path, t.Name)); err != nil {
-				return err
-			}
-		} else {
-			treeNodeList(oval, diff, filepath.Join(path, t.Name))
+	for _, child := range t.Children {
+		otherChild, _ := others[child.Name]
+		if err := child.compare(otherChild, diff, ownPath); err != nil {
+			return err
 		}
 	}
 
 	return nil
-}
-
-func treeNodeList(n *TreeNode, diff *[]DiffElement, path string) {
-	*diff = append(*diff, DiffElement{filepath.Join(path, n.Name), n.Type, false})
-	if n.Type == DirNode {
-		for _, child := range n.Children {
-			treeNodeList(child, diff, filepath.Join(path, n.Name))
-		}
-	}
 }
 
 func treeNodeMap(n *[]*TreeNode) map[string]*TreeNode {
