@@ -1,4 +1,4 @@
-package main
+package filesource
 
 import (
 	"encoding/json"
@@ -14,21 +14,27 @@ import (
 
 const api = "https://cloud-api.yandex.net/v1/disk"
 
-type yadisk struct {
+type YadiskConfig struct {
+	Path    string        `yaml:"path"`
+	Token   string        `yaml:"token"`
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+type Yadisk struct {
 	log *zap.SugaredLogger
-	cfg *remoteConfig
+	cfg *YadiskConfig
 
 	tr  *http.Transport
 	cli *http.Client
 }
 
-func newYadisk(log *zap.SugaredLogger, cfg *remoteConfig) *yadisk {
+func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 	tr := &http.Transport{
 		MaxIdleConns:    5,
 		IdleConnTimeout: 30 * time.Second,
 	}
 
-	y := &yadisk{
+	y := &Yadisk{
 		log: log,
 		cfg: cfg,
 		tr:  tr,
@@ -57,7 +63,7 @@ type yadiskNode struct {
 	} `json:"_embedded"`
 }
 
-func (y *yadisk) getOneDir(path string) (*yadiskNode, error) {
+func (y *Yadisk) getOneDir(path string) (*yadiskNode, error) {
 	y.log.Debugf("Getting directory %s", path)
 
 	var b []byte
@@ -76,7 +82,7 @@ func (y *yadisk) getOneDir(path string) (*yadiskNode, error) {
 	return &lr, nil
 }
 
-func (y *yadisk) http(path string) ([]byte, error) {
+func (y *Yadisk) http(path string) ([]byte, error) {
 	req, err := http.NewRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -94,12 +100,12 @@ func (y *yadisk) http(path string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (y *yadisk) Tree() (*treeNode, error) {
+func (y *Yadisk) Tree() (*TreeNode, error) {
 	y.log.Info("Gathering yadisk file info")
 	return y.tree("")
 }
 
-func (y *yadisk) tree(path string) (*treeNode, error) {
+func (y *Yadisk) tree(path string) (*TreeNode, error) {
 	node, err := y.getOneDir(path)
 	if err != nil {
 		return nil, err
@@ -108,14 +114,14 @@ func (y *yadisk) tree(path string) (*treeNode, error) {
 		return nil, errors.New("not a dir")
 	}
 
-	t := &treeNode{
+	t := &TreeNode{
 		Type:     dirNode,
 		Name:     node.Name,
-		Children: make([]*treeNode, 0),
+		Children: make([]*TreeNode, 0),
 	}
 	for _, emb := range node.Embedded.Items {
 		if emb.Type == "file" {
-			sub := &treeNode{
+			sub := &TreeNode{
 				Type: fileNode,
 				Name: emb.Name,
 				Size: emb.Size,

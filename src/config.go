@@ -6,21 +6,12 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 	"time"
+	"yadisk-ds-sync/src/filesource"
 )
 
-type localConfig struct {
-	Path string `yaml:"path"`
-}
-
-type remoteConfig struct {
-	Path    string        `yaml:"path"`
-	Token   string        `yaml:"token"`
-	Timeout time.Duration `yaml:"timeout"`
-}
-
 type config struct {
-	Local  localConfig  `yaml:"local"`
-	Remote remoteConfig `yaml:"remote"`
+	Local  filesource.LocalConfig  `yaml:"local"`
+	Remote filesource.YadiskConfig `yaml:"remote"`
 }
 
 func readConfig(log *zap.SugaredLogger, filename string) (*config, error) {

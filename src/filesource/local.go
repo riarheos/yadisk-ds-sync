@@ -1,4 +1,4 @@
-package main
+package filesource
 
 import (
 	"go.uber.org/zap"
@@ -6,33 +6,37 @@ import (
 	"path/filepath"
 )
 
-type local struct {
+type LocalConfig struct {
+	Path string `yaml:"path"`
+}
+
+type Local struct {
 	log  *zap.SugaredLogger
 	path string
 }
 
-func newLocal(log *zap.SugaredLogger, cfg *localConfig) *local {
-	return &local{
+func NewLocal(log *zap.SugaredLogger, cfg *LocalConfig) *Local {
+	return &Local{
 		log:  log,
 		path: cfg.Path,
 	}
 }
 
-func (l *local) Tree() (*treeNode, error) {
+func (l *Local) Tree() (*TreeNode, error) {
 	l.log.Info("Gathering local file info")
 	return l.tree("")
 }
 
-func (l *local) tree(path string) (*treeNode, error) {
+func (l *Local) tree(path string) (*TreeNode, error) {
 	ents, err := os.ReadDir(filepath.Join(l.path, path))
 	if err != nil {
 		return nil, err
 	}
 
-	t := &treeNode{
+	t := &TreeNode{
 		Name:     path,
 		Type:     dirNode,
-		Children: make([]*treeNode, 0),
+		Children: make([]*TreeNode, 0),
 	}
 
 	for _, ent := range ents {
@@ -47,7 +51,7 @@ func (l *local) tree(path string) (*treeNode, error) {
 			if err != nil {
 				return nil, err
 			}
-			child := &treeNode{
+			child := &TreeNode{
 				Name: ent.Name(),
 				Type: fileNode,
 				Size: fi.Size(),
