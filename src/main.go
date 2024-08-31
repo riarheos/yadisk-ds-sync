@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"go.uber.org/zap"
 	"yadisk-ds-sync/src/filesource"
 )
@@ -20,20 +21,10 @@ func main() {
 		log.Fatal("read config failed", zap.Error(err))
 	}
 
-	l := filesource.NewLocal(log, &cfg.Local)
-	localTree, err := l.Tree()
-	if err != nil {
-		log.Fatal("tree failed", zap.Error(err))
-	}
-
+	b := []byte("Hello world")
 	yd := filesource.NewYadisk(log, &cfg.Remote)
-	remoteTree, err := yd.Tree()
+	err = yd.WriteFile("lala/dummy.txt", bytes.NewReader(b))
 	if err != nil {
-		log.Fatal("tree failed", zap.Error(err))
-	}
-
-	diff, err := localTree.Compare(remoteTree)
-	for _, x := range diff {
-		log.Info("diff", zap.Any("x", x))
+		log.Fatal("write file failed", zap.Error(err))
 	}
 }

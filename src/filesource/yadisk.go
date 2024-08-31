@@ -28,6 +28,26 @@ type Yadisk struct {
 	cli *http.Client
 }
 
+type resourceHref struct {
+	HREF string `json:"href"`
+}
+
+type yadiskNode struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`    // "dir" or "file"
+	Path     string `json:"path"`    // "disk:/DND/screen/dirname"
+	Created  string `json:"created"` // "2020-05-12T22:14:47+00:00"
+	Modified string `json:"modified"`
+
+	// only for type == "file"
+	Size int64 `json:"size"`
+
+	// only for type == "dir"
+	Embedded struct {
+		Items []yadiskNode `json:"items"`
+	} `json:"_embedded"`
+}
+
 func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 	tr := &http.Transport{
 		MaxIdleConns:    5,
@@ -47,20 +67,73 @@ func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 	return y
 }
 
-type yadiskNode struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`    // "dir" or "file"
-	Path     string `json:"path"`    // "disk:/DND/screen/dirname"
-	Created  string `json:"created"` // "2020-05-12T22:14:47+00:00"
-	Modified string `json:"modified"`
+func (y *Yadisk) Tree() (*TreeNode, error) {
+	y.log.Info("Gathering yadisk file info")
+	return y.tree("")
+}
 
-	// only for type == "file"
-	Size int64 `json:"size"`
+func (y *Yadisk) MkDir(path string) error {
+	y.log.Infof("Creating directory %s", path)
+	uri := fmt.Sprintf("%s/resources?path=%s", api, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
+	_, err := y.http(uri, "PUT")
+	return err
+}
 
-	// only for type == "dir"
-	Embedded struct {
-		Items []yadiskNode `json:"items"`
-	} `json:"_embedded"`
+func (y *Yadisk) ReadFile(path string) (io.ReadCloser, error) {
+	y.log.Infof("Downloading file %s", path)
+
+	var b []byte
+	var err error
+	uri := fmt.Sprintf("%s/resources/download?path=%s", api, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
+	if b, err = y.http(uri, "GET"); err != nil {
+		return nil, err
+	}
+
+	var dr resourceHref
+	if err = json.Unmarshal(b, &dr); err != nil {
+		return nil, err
+	}
+
+	resp, err := y.cli.Get(dr.HREF)
+	if err != nil {
+		return nil, err
+	}
+	if !isSuccess(resp.StatusCode) {
+		return nil, fmt.Errorf("got http error: %v", resp.Status)
+	}
+
+	return resp.Body, nil
+}
+
+func (y *Yadisk) WriteFile(path string, content io.Reader) error {
+	y.log.Infof("Uploading file %s", path)
+
+	var b []byte
+	var err error
+	uri := fmt.Sprintf("%s/resources/upload?overwrite=true&path=%s", api, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
+	if b, err = y.http(uri, "GET"); err != nil {
+		return err
+	}
+
+	var dr resourceHref
+	if err = json.Unmarshal(b, &dr); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", dr.HREF, content)
+	if err != nil {
+		return err
+	}
+
+	resp, err := y.cli.Do(req)
+	if err != nil {
+		return err
+	}
+	if !isSuccess(resp.StatusCode) {
+		return fmt.Errorf("got http error: %v", resp.Status)
+	}
+
+	return nil
 }
 
 func (y *Yadisk) getOneDir(path string) (*yadiskNode, error) {
@@ -68,9 +141,8 @@ func (y *Yadisk) getOneDir(path string) (*yadiskNode, error) {
 
 	var b []byte
 	var err error
-	if b, err = y.http(
-		fmt.Sprintf("%s/resources?path=%s", api, url.QueryEscape(filepath.Join(y.cfg.Path, path))),
-	); err != nil {
+	uri := fmt.Sprintf("%s/resources?path=%s", api, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
+	if b, err = y.http(uri, "GET"); err != nil {
 		return nil, err
 	}
 
@@ -82,8 +154,8 @@ func (y *Yadisk) getOneDir(path string) (*yadiskNode, error) {
 	return &lr, nil
 }
 
-func (y *Yadisk) http(path string) ([]byte, error) {
-	req, err := http.NewRequest("GET", path, nil)
+func (y *Yadisk) http(path string, method string) ([]byte, error) {
+	req, err := http.NewRequest(method, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -93,16 +165,11 @@ func (y *Yadisk) http(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
+	if !isSuccess(resp.StatusCode) {
 		return nil, fmt.Errorf("got http error: %v", resp.Status)
 	}
 
 	return io.ReadAll(resp.Body)
-}
-
-func (y *Yadisk) Tree() (*TreeNode, error) {
-	y.log.Info("Gathering yadisk file info")
-	return y.tree("")
 }
 
 func (y *Yadisk) tree(path string) (*TreeNode, error) {
@@ -137,4 +204,8 @@ func (y *Yadisk) tree(path string) (*TreeNode, error) {
 	}
 
 	return t, nil
+}
+
+func isSuccess(code int) bool {
+	return code >= 200 && code < 300
 }
