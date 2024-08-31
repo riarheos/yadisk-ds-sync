@@ -96,7 +96,9 @@ func main() {
 		log.Fatalf("local tree failed: %v", err)
 	}
 	if *trees {
-		lt.Dump(log, "")
+		if err = lt.DumpToFile(log, "local_tree.yaml"); err != nil {
+			log.Fatalf("failed to dump tree: %v", err)
+		}
 	}
 
 	rt, err := remote.Tree()
@@ -104,7 +106,9 @@ func main() {
 		log.Fatalf("remote tree failed: %v", err)
 	}
 	if *trees {
-		rt.Dump(log, "")
+		if err = lt.DumpToFile(log, "remote_tree.yaml"); err != nil {
+			log.Fatalf("failed to dump tree: %v", err)
+		}
 	}
 
 	if *noDo {

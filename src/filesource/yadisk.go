@@ -13,6 +13,7 @@ import (
 )
 
 const api = "https://cloud-api.yandex.net/v1/disk"
+const fields = "name,type,_embedded.total,_embedded.limit,_embedded.items.name,_embedded.items.type,_embedded.items.size"
 
 type YadiskConfig struct {
 	Path    string        `yaml:"path"`
@@ -33,11 +34,8 @@ type resourceHref struct {
 }
 
 type yadiskNode struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`    // "dir" or "file"
-	Path     string `json:"path"`    // "disk:/DND/screen/dirname"
-	Created  string `json:"created"` // "2020-05-12T22:14:47+00:00"
-	Modified string `json:"modified"`
+	Name string `json:"name"`
+	Type string `json:"type"` // "dir" or "file"
 
 	// only for type == "file"
 	Size int64 `json:"size"`
@@ -153,7 +151,13 @@ func (y *Yadisk) getOneDir(path string) (*yadiskNode, error) {
 	for {
 		var b []byte
 		var err error
-		uri := fmt.Sprintf("%s/resources?limit=1000&offset=%d&path=%s", api, offset, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
+		uri := fmt.Sprintf(
+			"%s/resources?limit=1000&offset=%d&fields=%s&path=%s",
+			api,
+			offset,
+			fields,
+			url.QueryEscape(filepath.Join(y.cfg.Path, path)),
+		)
 		if b, err = y.http(uri, "GET"); err != nil {
 			return nil, err
 		}

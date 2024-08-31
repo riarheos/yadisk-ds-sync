@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
+	"os"
 	"path/filepath"
 )
 
@@ -15,10 +17,10 @@ const (
 )
 
 type TreeNode struct {
-	Name     string
-	Type     nodeType
-	Size     int64
-	Children []*TreeNode
+	Name     string      `yaml:"name"`
+	Type     nodeType    `yaml:"type"`
+	Size     int64       `yaml:"size"`
+	Children []*TreeNode `yaml:"children"`
 }
 
 func (t *TreeNode) String() string {
@@ -35,6 +37,15 @@ func (t *TreeNode) Dump(log *zap.SugaredLogger, pad string) {
 			child.Dump(log, pad+"  ")
 		}
 	}
+}
+
+func (t *TreeNode) DumpToFile(log *zap.SugaredLogger, filename string) error {
+	log.Infof("Dumping tree to %s", filename)
+	b, err := yaml.Marshal(&t)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filename, b, 0o644)
 }
 
 type DiffElement struct {
