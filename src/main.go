@@ -60,8 +60,24 @@ func dumpDiff(log *zap.SugaredLogger, lt, rt *filesource.TreeNode) error {
 	return nil
 }
 
+//	func main() {
+//		log := createLogger(true)
+//		cfg, err := readConfig(log, "config.yaml")
+//		if err != nil {
+//			log.Fatalf("failed to read config: %v", err)
+//		}
+//
+//		remote := filesource.NewYadisk(log, &cfg.Remote)
+//		rt, err := remote.Tree()
+//		if err != nil {
+//			panic(err)
+//		}
+//
+//		rt.Dump(log, "")
+//	}
 func main() {
-	debug := flag.BoolP("debug", "d", false, "enable debug mode")
+	debug := flag.BoolP("debug", "d", false, "enable debug logging mode")
+	trees := flag.BoolP("trees", "t", false, "dump corresponding trees")
 	noDo := flag.BoolP("no-do", "n", false, "only show what would be done")
 	configFile := flag.StringP("config", "c", "config.yaml", "configuration file")
 	flag.Parse()
@@ -79,10 +95,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("local tree failed: %v", err)
 	}
+	if *trees {
+		lt.Dump(log, "")
+	}
 
 	rt, err := remote.Tree()
 	if err != nil {
 		log.Fatalf("remote tree failed: %v", err)
+	}
+	if *trees {
+		rt.Dump(log, "")
 	}
 
 	if *noDo {

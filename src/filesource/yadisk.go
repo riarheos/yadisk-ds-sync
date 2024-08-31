@@ -44,7 +44,10 @@ type yadiskNode struct {
 
 	// only for type == "dir"
 	Embedded struct {
-		Items []yadiskNode `json:"items"`
+		Items  []yadiskNode `json:"items"`
+		Limit  int          `json:"limit"`
+		Offset int          `json:"offset"`
+		Total  int          `json:"total"`
 	} `json:"_embedded"`
 }
 
@@ -144,19 +147,33 @@ func (y *Yadisk) WriteFile(path string, content io.Reader) error {
 func (y *Yadisk) getOneDir(path string) (*yadiskNode, error) {
 	y.log.Debugf("Getting directory %s", path)
 
-	var b []byte
-	var err error
-	uri := fmt.Sprintf("%s/resources?path=%s", api, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
-	if b, err = y.http(uri, "GET"); err != nil {
-		return nil, err
-	}
+	embeds := make([]yadiskNode, 0)
+	offset := 0
 
-	var lr yadiskNode
-	if err = json.Unmarshal(b, &lr); err != nil {
-		return nil, err
-	}
+	for {
+		var b []byte
+		var err error
+		uri := fmt.Sprintf("%s/resources?limit=1000&offset=%d&path=%s", api, offset, url.QueryEscape(filepath.Join(y.cfg.Path, path)))
+		if b, err = y.http(uri, "GET"); err != nil {
+			return nil, err
+		}
 
-	return &lr, nil
+		var lr yadiskNode
+		if err = json.Unmarshal(b, &lr); err != nil {
+			return nil, err
+		}
+
+		if lr.Embedded.Total > 0 {
+			embeds = append(embeds, lr.Embedded.Items...)
+			if len(embeds) == lr.Embedded.Total {
+				lr.Embedded.Items = embeds
+				return &lr, nil
+			}
+			offset += lr.Embedded.Limit
+		} else {
+			return &lr, nil
+		}
+	}
 }
 
 func (y *Yadisk) http(path string, method string) ([]byte, error) {

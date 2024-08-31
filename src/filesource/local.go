@@ -8,18 +8,19 @@ import (
 )
 
 type LocalConfig struct {
-	Path string `yaml:"path"`
+	Path   string   `yaml:"path"`
+	Ignore []string `yaml:"ignore"`
 }
 
 type Local struct {
-	log  *zap.SugaredLogger
-	path string
+	log *zap.SugaredLogger
+	cfg *LocalConfig
 }
 
 func NewLocal(log *zap.SugaredLogger, cfg *LocalConfig) *Local {
 	return &Local{
-		log:  log,
-		path: cfg.Path,
+		log: log,
+		cfg: cfg,
 	}
 }
 
@@ -30,15 +31,15 @@ func (l *Local) Tree() (*TreeNode, error) {
 
 func (l *Local) MkDir(path string) error {
 	l.log.Infof("Creating directory %s", path)
-	return os.Mkdir(filepath.Join(l.path, path), 0777)
+	return os.Mkdir(filepath.Join(l.cfg.Path, path), 0777)
 }
 
 func (l *Local) ReadFile(path string) (io.ReadCloser, error) {
-	return os.Open(filepath.Join(l.path, path))
+	return os.Open(filepath.Join(l.cfg.Path, path))
 }
 
 func (l *Local) WriteFile(path string, content io.Reader) error {
-	file, err := os.OpenFile(filepath.Join(l.path, path), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	file, err := os.OpenFile(filepath.Join(l.cfg.Path, path), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func (l *Local) WriteFile(path string, content io.Reader) error {
 }
 
 func (l *Local) tree(path string) (*TreeNode, error) {
-	ents, err := os.ReadDir(filepath.Join(l.path, path))
+	ents, err := os.ReadDir(filepath.Join(l.cfg.Path, path))
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,14 @@ func (l *Local) tree(path string) (*TreeNode, error) {
 		Children: make([]*TreeNode, 0),
 	}
 
+outer:
 	for _, ent := range ents {
+		for _, ign := range l.cfg.Ignore {
+			if ent.Name() == ign {
+				continue outer
+			}
+		}
+
 		if ent.IsDir() {
 			sub, err := l.tree(filepath.Join(path, ent.Name()))
 			if err != nil {
