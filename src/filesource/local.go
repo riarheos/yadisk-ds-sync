@@ -29,6 +29,7 @@ func (l *Local) Tree() (*TreeNode, error) {
 }
 
 func (l *Local) MkDir(path string) error {
+	l.log.Infof("Creating directory %s", path)
 	return os.Mkdir(filepath.Join(l.path, path), 0755)
 }
 
@@ -61,7 +62,7 @@ func (l *Local) tree(path string) (*TreeNode, error) {
 
 	t := &TreeNode{
 		Name:     path,
-		Type:     dirNode,
+		Type:     DirNode,
 		Children: make([]*TreeNode, 0),
 	}
 
@@ -79,7 +80,7 @@ func (l *Local) tree(path string) (*TreeNode, error) {
 			}
 			child := &TreeNode{
 				Name: ent.Name(),
-				Type: fileNode,
+				Type: FileNode,
 				Size: fi.Size(),
 			}
 			t.Children = append(t.Children, child)

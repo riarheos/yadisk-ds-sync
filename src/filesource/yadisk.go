@@ -69,7 +69,12 @@ func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 
 func (y *Yadisk) Tree() (*TreeNode, error) {
 	y.log.Info("Gathering yadisk file info")
-	return y.tree("")
+	tn, err := y.tree("")
+	if err != nil {
+		return nil, err
+	}
+	tn.Name = ""
+	return tn, nil
 }
 
 func (y *Yadisk) MkDir(path string) error {
@@ -182,14 +187,14 @@ func (y *Yadisk) tree(path string) (*TreeNode, error) {
 	}
 
 	t := &TreeNode{
-		Type:     dirNode,
+		Type:     DirNode,
 		Name:     node.Name,
 		Children: make([]*TreeNode, 0),
 	}
 	for _, emb := range node.Embedded.Items {
 		if emb.Type == "file" {
 			sub := &TreeNode{
-				Type: fileNode,
+				Type: FileNode,
 				Name: emb.Name,
 				Size: emb.Size,
 			}

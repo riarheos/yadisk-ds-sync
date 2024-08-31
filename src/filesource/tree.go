@@ -10,8 +10,8 @@ import (
 type nodeType int
 
 const (
-	dirNode nodeType = iota
-	fileNode
+	DirNode nodeType = iota
+	FileNode
 )
 
 type TreeNode struct {
@@ -22,7 +22,7 @@ type TreeNode struct {
 }
 
 func (t *TreeNode) String() string {
-	if t.Type == dirNode {
+	if t.Type == DirNode {
 		return fmt.Sprintf("[d] %s", t.Name)
 	}
 	return fmt.Sprintf("[f] %s (%d)", t.Name, t.Size)
@@ -30,7 +30,7 @@ func (t *TreeNode) String() string {
 
 func (t *TreeNode) Dump(log *zap.SugaredLogger, pad string) {
 	log.Debugf("%s%v", pad, t)
-	if t.Type == dirNode {
+	if t.Type == DirNode {
 		for _, child := range t.Children {
 			child.Dump(log, pad+"  ")
 		}
@@ -43,6 +43,13 @@ type DiffElement struct {
 	IsUpdate bool
 }
 
+func (d *DiffElement) String() string {
+	if d.Type == DirNode {
+		return fmt.Sprintf("[d] %s", d.Name)
+	}
+	return fmt.Sprintf("[f] %s", d.Name)
+}
+
 func (t *TreeNode) Compare(other *TreeNode) ([]DiffElement, error) {
 	diff := make([]DiffElement, 0)
 	return diff, t.compare(other, &diff, "")
@@ -53,9 +60,9 @@ func (t *TreeNode) compare(other *TreeNode, diff *[]DiffElement, path string) er
 		return errors.New("different type")
 	}
 
-	if t.Type == fileNode {
+	if t.Type == FileNode {
 		if other.Size > t.Size {
-			*diff = append(*diff, DiffElement{filepath.Join(path, t.Name), fileNode, true})
+			*diff = append(*diff, DiffElement{filepath.Join(path, t.Name), FileNode, true})
 		}
 		return nil
 	}
@@ -79,7 +86,7 @@ func (t *TreeNode) compare(other *TreeNode, diff *[]DiffElement, path string) er
 
 func treeNodeList(n *TreeNode, diff *[]DiffElement, path string) {
 	*diff = append(*diff, DiffElement{filepath.Join(path, n.Name), n.Type, false})
-	if n.Type == dirNode {
+	if n.Type == DirNode {
 		for _, child := range n.Children {
 			treeNodeList(child, diff, filepath.Join(path, n.Name))
 		}
