@@ -30,7 +30,7 @@ func (l *Local) Tree() (*TreeNode, error) {
 
 func (l *Local) MkDir(path string) error {
 	l.log.Infof("Creating directory %s", path)
-	return os.Mkdir(filepath.Join(l.path, path), 0755)
+	return os.Mkdir(filepath.Join(l.path, path), 0777)
 }
 
 func (l *Local) ReadFile(path string) (io.ReadCloser, error) {
@@ -38,7 +38,7 @@ func (l *Local) ReadFile(path string) (io.ReadCloser, error) {
 }
 
 func (l *Local) WriteFile(path string, content io.Reader) error {
-	file, err := os.OpenFile(filepath.Join(l.path, path), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(filepath.Join(l.path, path), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
