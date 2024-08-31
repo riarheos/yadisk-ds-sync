@@ -45,8 +45,24 @@ func applyDiff(lf, rf filesource.FileSource, lt, rt *filesource.TreeNode) error 
 	return nil
 }
 
+func dumpDiff(log *zap.SugaredLogger, lt, rt *filesource.TreeNode) error {
+	diff, err := lt.Compare(rt)
+	if err != nil {
+		return err
+	}
+	for _, de := range diff {
+		if de.Type == filesource.DirNode {
+			log.Infof(" dir:  %s", de.Name)
+		} else {
+			log.Infof("file:  %s", de.Name)
+		}
+	}
+	return nil
+}
+
 func main() {
 	debug := flag.BoolP("debug", "d", false, "enable debug mode")
+	noDo := flag.BoolP("no-do", "n", false, "only show what would be done")
 	configFile := flag.StringP("config", "c", "config.yaml", "configuration file")
 	flag.Parse()
 
@@ -67,6 +83,18 @@ func main() {
 	rt, err := remote.Tree()
 	if err != nil {
 		log.Fatalf("remote tree failed: %v", err)
+	}
+
+	if *noDo {
+		log.Infof("Dumping remote-to-local")
+		if err = dumpDiff(log, lt, rt); err != nil {
+			log.Fatalf("failed to dump diff: %v", err)
+		}
+		log.Infof("Dumping local-to-remote")
+		if err = dumpDiff(log, rt, lt); err != nil {
+			log.Fatalf("failed to dump diff: %v", err)
+		}
+		return
 	}
 
 	log.Debug("Applying remote to local")
