@@ -1,12 +1,17 @@
 package main
 
 import (
+	flag "github.com/spf13/pflag"
 	"go.uber.org/zap"
 	"yadisk-ds-sync/src/filesource"
 )
 
-func createLogger() *zap.SugaredLogger {
-	unsugared, err := zap.NewDevelopment()
+func createLogger(debug bool) *zap.SugaredLogger {
+	cfg := zap.NewDevelopmentConfig()
+	if !debug {
+		cfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	}
+	unsugared, err := cfg.Build(zap.WithCaller(false))
 	if err != nil {
 		panic(err)
 	}
@@ -41,8 +46,12 @@ func applyDiff(lf, rf filesource.FileSource, lt, rt *filesource.TreeNode) error 
 }
 
 func main() {
-	log := createLogger()
-	cfg, err := readConfig(log, "config.yaml")
+	debug := flag.BoolP("debug", "d", false, "enable debug mode")
+	configFile := flag.StringP("config", "c", "config.yaml", "configuration file")
+	flag.Parse()
+
+	log := createLogger(*debug)
+	cfg, err := readConfig(log, *configFile)
 	if err != nil {
 		log.Fatalf("failed to read config: %v", err)
 	}
