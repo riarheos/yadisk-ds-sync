@@ -2,6 +2,7 @@ package filesource
 
 import (
 	"go.uber.org/zap"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -25,6 +26,31 @@ func NewLocal(log *zap.SugaredLogger, cfg *LocalConfig) *Local {
 func (l *Local) Tree() (*TreeNode, error) {
 	l.log.Info("Gathering local file info")
 	return l.tree("")
+}
+
+func (l *Local) MkDir(path string) error {
+	return os.Mkdir(filepath.Join(l.path, path), 0755)
+}
+
+func (l *Local) ReadFile(path string) (io.ReadCloser, error) {
+	return os.Open(filepath.Join(l.path, path))
+}
+
+func (l *Local) WriteFile(path string, content io.Reader) error {
+	file, err := os.OpenFile(filepath.Join(l.path, path), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	_, err = io.Copy(file, content)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (l *Local) tree(path string) (*TreeNode, error) {
