@@ -23,6 +23,13 @@ type TreeNode struct {
 	Children []*TreeNode `yaml:"children"`
 }
 
+func (t *TreeNode) CopyDataFrom(o *TreeNode) {
+	t.Name = o.Name
+	t.Type = o.Type
+	t.Size = o.Size
+	t.Children = o.Children
+}
+
 func (t *TreeNode) String() string {
 	if t.Type == DirNode {
 		return fmt.Sprintf("[d] %s", t.Name)

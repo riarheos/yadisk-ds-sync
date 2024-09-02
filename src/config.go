@@ -40,6 +40,9 @@ func readConfig(log *zap.SugaredLogger, filename string) (*config, error) {
 	if c.Remote.Timeout == 0 {
 		c.Remote.Timeout = 30 * time.Second
 	}
+	if c.Remote.Workers == 0 {
+		c.Remote.Workers = 5
+	}
 
 	return c, nil
 }

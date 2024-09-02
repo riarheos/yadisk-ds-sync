@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"sync"
 	"time"
+	"yadisk-ds-sync/src/taskqueue"
 )
 
 const api = "https://cloud-api.yandex.net/v1/disk"
@@ -19,6 +21,7 @@ type YadiskConfig struct {
 	Path    string        `yaml:"path"`
 	Token   string        `yaml:"token"`
 	Timeout time.Duration `yaml:"timeout"`
+	Workers int           `yaml:"workers"`
 }
 
 type Yadisk struct {
@@ -27,6 +30,7 @@ type Yadisk struct {
 
 	tr  *http.Transport
 	cli *http.Client
+	tq  *taskqueue.TaskQueue
 }
 
 type resourceHref struct {
@@ -63,6 +67,7 @@ func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 			Transport: tr,
 			Timeout:   cfg.Timeout,
 		},
+		tq: taskqueue.NewTaskQueue(cfg.Workers, true),
 	}
 
 	return y
@@ -70,12 +75,16 @@ func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 
 func (y *Yadisk) Tree() (*TreeNode, error) {
 	y.log.Info("Gathering yadisk file info")
-	tn, err := y.tree("")
-	if err != nil {
-		return nil, err
-	}
-	tn.Name = ""
-	return tn, nil
+
+	res := &TreeNode{}
+	y.tq.Push(func() error {
+		err := y.tree(res, "")
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	return res, y.tq.Run()
 }
 
 func (y *Yadisk) MkDir(path string) error {
@@ -189,29 +198,29 @@ func (y *Yadisk) http(path string, method string) ([]byte, error) {
 
 	resp, err := y.cli.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting %s: %v", path, err)
 	}
 	if !isSuccess(resp.StatusCode) {
-		return nil, fmt.Errorf("got http error: %v", resp.Status)
+		return nil, fmt.Errorf("got http error getting %s: %v", path, resp.Status)
 	}
 
 	return io.ReadAll(resp.Body)
 }
 
-func (y *Yadisk) tree(path string) (*TreeNode, error) {
+func (y *Yadisk) tree(targetNode *TreeNode, path string) error {
 	node, err := y.getOneDir(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if node.Type != "dir" {
-		return nil, errors.New("not a dir")
+		return errors.New("not a dir")
 	}
 
-	t := &TreeNode{
-		Type:     DirNode,
-		Name:     node.Name,
-		Children: make([]*TreeNode, 0),
-	}
+	targetNode.Type = DirNode
+	targetNode.Name = node.Name
+	targetNode.Children = make([]*TreeNode, 0)
+
+	mtx := sync.Mutex{}
 	for _, emb := range node.Embedded.Items {
 		if emb.Type == "file" {
 			sub := &TreeNode{
@@ -219,17 +228,24 @@ func (y *Yadisk) tree(path string) (*TreeNode, error) {
 				Name: emb.Name,
 				Size: emb.Size,
 			}
-			t.Children = append(t.Children, sub)
+			targetNode.Children = append(targetNode.Children, sub)
 		} else {
-			sub, err := y.tree(filepath.Join(path, emb.Name))
-			if err != nil {
-				return nil, err
-			}
-			t.Children = append(t.Children, sub)
+			subPath := filepath.Join(path, emb.Name)
+			sub := &TreeNode{}
+			y.tq.Push(func() error {
+				err := y.tree(sub, subPath)
+				if err != nil {
+					return err
+				}
+				mtx.Lock()
+				targetNode.Children = append(targetNode.Children, sub)
+				mtx.Unlock()
+				return nil
+			})
 		}
 	}
 
-	return t, nil
+	return nil
 }
 
 func isSuccess(code int) bool {
