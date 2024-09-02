@@ -37,8 +37,11 @@ func readConfig(log *zap.SugaredLogger, filename string) (*config, error) {
 	if c.Remote.Token == "" {
 		return nil, errors.New("remote token is required")
 	}
-	if c.Remote.Timeout == 0 {
-		c.Remote.Timeout = 30 * time.Second
+	if c.Remote.APITimeout == 0 {
+		c.Remote.APITimeout = 30 * time.Second
+	}
+	if c.Remote.DownloadTimeout == 0 {
+		c.Remote.APITimeout = 300 * time.Second
 	}
 	if c.Remote.Workers == 0 {
 		c.Remote.Workers = 5

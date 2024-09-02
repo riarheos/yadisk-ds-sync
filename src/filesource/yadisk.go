@@ -18,19 +18,21 @@ const api = "https://cloud-api.yandex.net/v1/disk"
 const fields = "name,type,_embedded.total,_embedded.limit,_embedded.items.name,_embedded.items.type,_embedded.items.size"
 
 type YadiskConfig struct {
-	Path    string        `yaml:"path"`
-	Token   string        `yaml:"token"`
-	Timeout time.Duration `yaml:"timeout"`
-	Workers int           `yaml:"workers"`
+	Path            string        `yaml:"path"`
+	Token           string        `yaml:"token"`
+	Workers         int           `yaml:"workers"`
+	APITimeout      time.Duration `yaml:"api_timeout"`
+	DownloadTimeout time.Duration `yaml:"download_timeout"`
 }
 
 type Yadisk struct {
 	log *zap.SugaredLogger
 	cfg *YadiskConfig
 
-	tr  *http.Transport
-	cli *http.Client
-	tq  *taskqueue.TaskQueue
+	tr          *http.Transport
+	apiCLI      *http.Client
+	downloadCLI *http.Client
+	tq          *taskqueue.TaskQueue
 }
 
 type resourceHref struct {
@@ -63,9 +65,13 @@ func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 		log: log,
 		cfg: cfg,
 		tr:  tr,
-		cli: &http.Client{
+		apiCLI: &http.Client{
 			Transport: tr,
-			Timeout:   cfg.Timeout,
+			Timeout:   cfg.APITimeout,
+		},
+		downloadCLI: &http.Client{
+			Transport: tr,
+			Timeout:   cfg.DownloadTimeout,
 		},
 		tq: taskqueue.NewTaskQueue(cfg.Workers, true),
 	}
@@ -109,7 +115,7 @@ func (y *Yadisk) ReadFile(path string) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	resp, err := y.cli.Get(dr.HREF)
+	resp, err := y.downloadCLI.Get(dr.HREF)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +146,7 @@ func (y *Yadisk) WriteFile(path string, content io.Reader) error {
 		return err
 	}
 
-	resp, err := y.cli.Do(req)
+	resp, err := y.downloadCLI.Do(req)
 	if err != nil {
 		return err
 	}
@@ -196,7 +202,7 @@ func (y *Yadisk) http(path string, method string) ([]byte, error) {
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("OAuth %s", y.cfg.Token))
 
-	resp, err := y.cli.Do(req)
+	resp, err := y.apiCLI.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error getting %s: %v", path, err)
 	}
