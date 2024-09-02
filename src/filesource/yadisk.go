@@ -55,7 +55,7 @@ type yadiskNode struct {
 
 func NewYadisk(log *zap.SugaredLogger, cfg *YadiskConfig) *Yadisk {
 	tr := &http.Transport{
-		MaxIdleConns:    5,
+		MaxIdleConns:    cfg.Workers + 5,
 		IdleConnTimeout: 30 * time.Second,
 	}
 
