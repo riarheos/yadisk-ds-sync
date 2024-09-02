@@ -90,7 +90,9 @@ func (y *Yadisk) Tree() (*TreeNode, error) {
 		}
 		return nil
 	})
-	return res, y.tq.Run()
+	err := y.tq.Run()
+	res.Name = ""
+	return res, err
 }
 
 func (y *Yadisk) MkDir(path string) error {
